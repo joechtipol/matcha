@@ -1831,6 +1831,8 @@ def NormaliseTaille(Valeur, taille_max = 38):
                         break
 
             valeur = ' '.join(tab)
+        if len(valeur) > taille_max:
+            valeur = valeur[0:taille_max]
         return valeur
 
     if _flag_bodacc or _pays != 'FRA':
@@ -11158,7 +11160,7 @@ def formatage(chaine, merge_voie = True):
         return [resu1, resu_ch1, tb]
 
 
-def decoupe_voie(forme, liste):
+def decoupe_voie(forme, liste, transvoie = True):
     resu = ['',
      '',
      '',
@@ -11206,7 +11208,10 @@ def decoupe_voie(forme, liste):
                 if fl_voie and i[0][0:6] == '<voie>' and liste[0][k1][0] == '<voie>' and (j == _lenDepartement or j == _lenCP):
                     try:
                         nbvoie += liste[0][k1][1]
-                        resu[3] = _voie_transfo[liste[2][k2]]
+                        if transvoie:
+                            resu[3] = _voie_transfo[liste[2][k2]]
+                        else:
+                            resu[3] = liste[2][k2]
                         k3 = k2 + liste[0][k1][1] - 2
                         if _voie_decoupe.has_key(resu[3]):
                             a1 = _voie_decoupe[resu[3]]
@@ -11673,7 +11678,7 @@ def recherche_villeparnomexact(ville_av, dep = '', avec_cedexa = 'N'):
     return resu
 
 
-def recherche_villeparnom(ville_av, cpverif = '', flag_triville = True, flag_insuffisant = False, cedex = True):
+def recherche_villeparnom(ville_av, cpverif = '', flag_triville = True, flag_insuffisant = False, cedex = True, exact = False, nbmax = 60):
     global _tps_max
     time1 = time.gmtime()
     time1 = time1[3] * 3600 + time1[4] * 60 + time1[5]
@@ -11692,11 +11697,18 @@ def recherche_villeparnom(ville_av, cpverif = '', flag_triville = True, flag_ins
             ville_av1 = ville_av1.replace('SAINT ', 'ST ', 1).replace(' SAINT ', ' ST ').replace(' SAINTE ', ' STE ')
         if ville_av1[0:7] == 'SAINTE ':
             ville_av1 = ville_av1.replace('SAINTE ', 'STE ', 1).replace(' SAINT ', ' ST ').replace(' SAINTE ', ' STE ')
+    ville_av3 = ''
+    if len(tb_av) > 1:
+        tb_av.sort()
+        ville_av3 = ' '.join(tb_av)
+        if ville_av3 == ville_av1 or ville_av3 == tb_av1:
+            ville_av3 = ''
     ville_av2 = ville_av1[:]
     if _flag_new and flag_insuffisant:
         if ville_av1 == '' and ville_av.strip() != '':
             return [0]
     _trouve = []
+    resu = []
     flag_mot = False
     if cedex and ' CEDEX ' in ville_av1 + ' ' and cpverif != '':
         ville_av1 = ville_av1[0:ville_av1.index(' CEDEX')]
@@ -11705,15 +11717,19 @@ def recherche_villeparnom(ville_av, cpverif = '', flag_triville = True, flag_ins
     elif mapville.has_key(tb_av1):
         _trouve.append(tb_av1)
         ville_av1 = tb_av1
+    elif ville_av3 != '' and mapville.has_key(ville_av3):
+        _trouve.append(ville_av3)
     elif ville_av1 != '':
         if mapville.has_key(ville_av1[0:-1]):
             _trouve.append(ville_av1[0:-1])
         elif mapville3.has_key(ville_av1):
             flag_mot = True
-    ville = PhonexVille(ville_av1)
-    resu = []
-    if len(ville_av1) <= 1:
-        return resu
+    if not exact:
+        ville = PhonexVille(ville_av1)
+        if len(ville_av1) <= 1:
+            return resu
+    else:
+        ville = [ville_av1]
     ta = len(cpverif)
     cont_ici = False
     _dep = -1
@@ -11724,7 +11740,7 @@ def recherche_villeparnom(ville_av, cpverif = '', flag_triville = True, flag_ins
                     if i[0] not in _trouve:
                         _trouve.append(i[0])
 
-    elif ville_av1 != ville[-1][0] and mapville.has_key(ville[-1][0]):
+    elif ville_av1 != '' and ville[-1] != '' and ville_av1 != ville[-1][0] and mapville.has_key(ville[-1][0]):
         if ville[-1][0] not in _trouve:
             _trouve.append(ville[-1][0])
     if flag_mot:
@@ -11752,7 +11768,7 @@ def recherche_villeparnom(ville_av, cpverif = '', flag_triville = True, flag_ins
                         if cedex or ' CEDEX ' not in i[0] + ' ':
                             resu.append(i[:])
 
-            if len(resu) < 20:
+            if len(resu) < 20 and not exact:
                 tph = Phonems(ville_av1)
                 resu1 = []
                 if mapville3.has_key(tph):
@@ -11770,8 +11786,8 @@ def recherche_villeparnom(ville_av, cpverif = '', flag_triville = True, flag_ins
         time2 = time.gmtime()
         t = time2[0] * 3600 + time2[1] * 60 + time2[2] - time1
         if flag_triville and resu != []:
-            resu = triville(ville_av, resu, _tps_max)
-    else:
+            resu = triville(ville_av, resu, nbmax)
+    elif not exact:
         tph = Phonems(ville_av1)
         resu1 = []
         if mapville3.has_key(tph):
@@ -12588,7 +12604,117 @@ def cedexhub(ville):
     return ' CEDEX ' in vi or 'HUB ARMEE' in vi
 
 
-def RechAdresse(nom, NBMax = 400, Lookup = False, Appel = '', cpdefaut = '', vcedex = ''):
+def AjusteCPVille(valeur):
+    if valeur == '':
+        return valeur
+    tb_valeur = valeur.strip().split()
+    resu = ''
+    for i in range(0, len(tb_valeur) - 1):
+        if tb_valeur[i] in ('SAINT', 'SAINTE'):
+            resu += ' ST'
+        elif tb_valeur[i] not in ('DE', 'DU', 'SUR', 'LE', 'LA', 'LES', 'DES'):
+            resu += ' ' + tb_valeur[i]
+
+    return (resu + ' ' + tb_valeur[-1]).strip()
+
+
+def TrouveLieuDitOld(valeurs, villes):
+    if len(valeurs) >= 4 and valeurs[1] != '' and valeurs[2] != '' and valeurs[4] == '':
+        _compville = AjusteCPVille(valeurs[2])
+        for _ville in villes:
+            if '(LD.' in _ville[0]:
+                _a1 = AjusteCPVille(_ville[0][_ville[0].index('(LD.') + 4:-1])
+                if _a1 == _compville:
+                    return [[[_ville[1], _ville[4]],
+                      [_ville[0], '*', ''],
+                      '',
+                      '',
+                      '',
+                      '',
+                      '',
+                      '']]
+
+        return []
+    else:
+        return []
+
+
+def TrouveLieuDit(valeurs, villes):
+    if len(valeurs) >= 4 and valeurs[1] != '' and valeurs[2] != '' and valeurs[4] == '':
+        _compville = AjusteCPVille(valeurs[2])
+        if _compville == 'NOTHINGTODO':
+            _compville = AjusteCPVille(valeurs[1])
+            prio = []
+            for _ville in villes:
+                if '(LD.' not in _ville[0]:
+                    _a1 = AjusteCPVille(_ville[0])
+                    if _a1 == _compville:
+                        prio.insert(0, [[[_ville[1], _ville[4]],
+                          [_ville[0], '*', ''],
+                          '',
+                          '',
+                          '',
+                          '',
+                          '',
+                          '']])
+                else:
+                    _a1 = AjusteCPVille(_ville[0][0:_ville[0].index('(LD.')])
+                    _comp = AjusteCPVille(_ville[0][_ville[0].index('(LD.') + 4:-1])
+                    if _a1 == _compville:
+                        prio.append([[[_ville[1], _ville[4]],
+                          [_ville[0], '*', ''],
+                          '',
+                          '',
+                          '',
+                          '',
+                          '',
+                          '']])
+                    elif _comp == _compville:
+                        prio.append([[[_ville[1], _ville[4]],
+                          [_ville[0], '*', ''],
+                          '',
+                          '',
+                          '',
+                          '',
+                          '',
+                          '']])
+
+            if prio != []:
+                if len(prio) == 1 or '(LD.' not in prio[0][0][1][0]:
+                    return prio[0]
+                suppLD = True
+                for _prio in prio:
+                    if '(LD.' not in _prio[0][1][0]:
+                        suppLD = False
+                        break
+
+                if suppLD:
+                    _prio = prio[0]
+                    _prio[0][1][0] = _prio[0][1][0][0:_prio[0][1][0].index('(LD.')].strip()
+                    return _prio
+                return prio[0]
+            else:
+                return []
+        else:
+            for _ville in villes:
+                if '(LD.' in _ville[0]:
+                    _a1 = AjusteCPVille(_ville[0][_ville[0].index('(LD.') + 4:-1])
+                    if _a1 == _compville:
+                        return [[[_ville[1], _ville[4]],
+                          [_ville[0], '*', ''],
+                          '',
+                          '',
+                          '',
+                          '',
+                          '',
+                          '']]
+
+        return []
+    else:
+        return []
+
+
+def RechAdresse(nom, NBMax = 400, Lookup = False, Appel = '', cpdefaut = '', vcedex = '', transvoie = True):
 
     def reduitNum(valeur):
         if valeur != '':
@@ -12649,7 +12775,7 @@ def RechAdresse(nom, NBMax = 400, Lookup = False, Appel = '', cpdefaut = '', vce
     if resu_format[1] == '<CP>':
         return recherche_cp(nom, True, fl_ajoutecp=True, flag_voie=Appel != 'RNVP', flag_cedexa=Appel != 'RNVP')
     elif len(resu_format[2]) == 2 and resu_format[1].find('<CEDEX>') >= 0:
-        recup = decoupe_voie(_regles[resu_format[1]][quelformat], resu_format)
+        recup = decoupe_voie(_regles[resu_format[1]][quelformat], resu_format, transvoie)
         if recup[0] != '':
             if _cedexa.has_key(recup[0]):
                 re = []
@@ -12704,7 +12830,7 @@ def RechAdresse(nom, NBMax = 400, Lookup = False, Appel = '', cpdefaut = '', vce
             resu_final = []
             if resu_format != []:
                 if _regles.has_key(resu_format[1]):
-                    recup = decoupe_voie(_regles[resu_format[1]][quelformat], resu_format)
+                    recup = decoupe_voie(_regles[resu_format[1]][quelformat], resu_format, transvoie)
                     recup[4] = reduitNum(recup[4])
                 elif '<virg>' not in resu_format[1]:
                     tb = chaine.split()
@@ -12719,7 +12845,7 @@ def RechAdresse(nom, NBMax = 400, Lookup = False, Appel = '', cpdefaut = '', vce
                     chaine = chaine.replace(',', ' ').replace(';', ' ')
                     resu_format = formatage(chaine)
                     if _regles.has_key(resu_format[1]):
-                        recup = decoupe_voie(_regles[resu_format[1]][quelformat], resu_format)
+                        recup = decoupe_voie(_regles[resu_format[1]][quelformat], resu_format, transvoie)
                     else:
                         tb = chaine.split()
                         recup = ['',
@@ -12786,7 +12912,7 @@ def RechAdresse(nom, NBMax = 400, Lookup = False, Appel = '', cpdefaut = '', vce
                         else:
                             recup[1] = villes[0][0]
                         recup[0] = villes[0][4]
-                    villes1 = recherche_villeparnom(recup[1], recup[0][0:_lenDepartement])
+                    villes1 = recherche_villeparnom(recup[1], recup[0][0:_lenDepartement], nbmax=1000)
                     if villes1 == []:
                         villes1 = recherche_villeparnom(recup[1])
                         fl_identif_ville = False
@@ -12806,6 +12932,8 @@ def RechAdresse(nom, NBMax = 400, Lookup = False, Appel = '', cpdefaut = '', vce
                                 recup[0] = i[2]
                                 villes = recherche_cp(recup[0], flag_voie=Appel != 'RNVP', flag_cedexa=Appel != 'RNVP')
                     if villes == []:
+                        if cpdefaut != '':
+                            villes = recherche_cp(cpdefaut, flag_voie=Appel != 'RNVP', flag_cedexa=Appel != 'RNVP')
                         for j in villes1:
                             if [j[0],
                              j[1],
@@ -12952,6 +13080,9 @@ def RechAdresse(nom, NBMax = 400, Lookup = False, Appel = '', cpdefaut = '', vce
                              j[2]])
 
                     codepostal = ''
+                _tld = TrouveLieuDit(recup, villes)
+                if _tld:
+                    return _tld
                 if len(villes) == 0:
                     if recup[1] == '':
                         if cp_234.has_key(recup[0][0:_lenDepartement]):
@@ -13045,7 +13176,13 @@ def RechAdresse(nom, NBMax = 400, Lookup = False, Appel = '', cpdefaut = '', vce
                             else:
                                 resu_final = resu_final1
                     else:
-                        villes1 = recherche_villeparnom(recup[1], cedex=recup[0] != '')
+                        if Appel == 'RNVP':
+                            if recup[0] != '':
+                                villes1 = recherche_villeparnom(recup[1], recup[0][0:_lenDepartement], cedex=recup[0] != '')
+                            else:
+                                villes1 = recherche_villeparnom(recup[1], cedex=recup[0] != '')
+                        else:
+                            villes1 = recherche_villeparnom(recup[1], cedex=recup[0] != '')
                         villes = []
                         for j in villes1:
                             if [j[0],
@@ -16467,6 +16604,9 @@ class RecupAdr(object):
         if _flag_log:
             log('%s|%s|%s|debut|ADR' % (datetime.datetime.now(), _port_num, _compteur))
         vok = False
+        LieuDitAdr = ''
+        if '|' in Adresse:
+            Adresse, LieuDitAdr = Adresse.split('|')[0:2]
         _nativecharset = 'true'
         if '-' in Pays:
             Pays = Pays.split('-')[0]
@@ -17197,7 +17337,19 @@ class RecupAdr(object):
                         else:
                             tp['Latitude'] = ''
                             tp['Longitude'] = ''
-                        retour[str(tpnb)] = tp
+                        if tp['LieuDit'] == '' and tp['IDLocalite'] != '' and mapville6[tp['IDLocalite']] != '':
+                            if LieuDitAdr != '':
+                                tp['LieuDit'] = LieuDitAdr
+                                retour[str(tpnb)] = tp.copy()
+                            else:
+                                retour[str(tpnb)] = tp.copy()
+                                for _ld in mapville6[tp['IDLocalite']]:
+                                    tpnb += 1
+                                    tp['LieuDit'] = _ld
+                                    retour[str(tpnb)] = tp.copy()
+
+                        else:
+                            retour[str(tpnb)] = tp
                         if tpnb == tpnbmax:
                             break
 
@@ -17412,7 +17564,7 @@ class RecupNum(object):
                         tp['IDLocalite'] = va[0][2]
                         a = recup_tout_cp(va[0][1], va[0][5])
                         if a != [] and len(a) >= 3:
-                            tp['Localite'] = a[0]
+                            tp['Localite'] = a[0].strip()
                             tp['Province'] = a[1]
                             tp['SousLocalite'] = a[2]
                 tp['Cedex'] = '0'
@@ -18082,7 +18234,6 @@ class RecupLibre(object):
                     if supp9:
                         tpnb = 0
                         for li in r1:
-                            print ('li=', li)
                             if li != None:
                                 tpnb += 1
                                 tp = {}
@@ -18183,7 +18334,7 @@ class RecupLibre(object):
                                         if len(np1) > 2:
                                             tp['Localite'] = np1[0][:] + ' (' + np1[2]
                                         else:
-                                            tp['Localite'] = np1[0][:]
+                                            tp['Localite'] = np1[0][:].strip()
                                     tp['NbNumero'] = ''
                                     tp['ListeNumero'] = ''
                                     tp['Complement'] = ''
@@ -18247,7 +18398,7 @@ class RecupLibre(object):
                                         if len(np1) > 2:
                                             tp['Localite'] = np1[0][:] + ' (' + np1[2]
                                         else:
-                                            tp['Localite'] = np1[0][:]
+                                            tp['Localite'] = np1[0][:].strip()
                                     tp['NbNumero'] = ''
                                     tp['ListeNumero'] = ''
                                     tp['Complement'] = '\t'.join(li[9])
@@ -18330,7 +18481,7 @@ class RecupLibre(object):
                         tp['Voie'] = li[5][0] + ',,' + li[2]
                         tp['CodeVoie'] = li[4]
                         tp['CodePostal'] = FormatCP(li[1][1])
-                        tp['Localite'] = li[1][2]
+                        tp['Localite'] = li[1][2].strip()
                         tp['Cedex'] = '0'
                         if 'CEDEX' in tp['Localite']:
                             tp['Cedex'] = '1'
@@ -18403,7 +18554,7 @@ class RecupLibre(object):
                             if len(np1) > 2:
                                 tp['Localite'] = np1[0][:] + ' (' + np1[2]
                             else:
-                                tp['Localite'] = np1[0][:]
+                                tp['Localite'] = np1[0][:].strip()
                             tp['Cedex'] = '0'
                             if 'CEDEX' in tp['Localite']:
                                 tp['Cedex'] = '1'
@@ -19095,7 +19246,7 @@ class VerifRnvp(object):
                                 ana0['rnvp_Adr2'] = ' '.join(ana0['rnvp_Adr2'].replace(ld, '').split())
                             elif ld in ana0['rnvp_Adr3']:
                                 ana0['rnvp_Adr3'] = ' '.join(ana0['rnvp_Adr3'].replace(ld, '').split())
-                        tp['Localite'] = vi
+                        tp['Localite'] = vi.strip()
                         break
 
             tp['Cedex'] = '0'
@@ -19515,7 +19666,10 @@ class VerifRnvp(object):
                                 if restructure.AnalyseSpecifique != None and restructure._isValidate:
                                     _validate = restructure.AnalyseSpecifique.isValidate(ana)
                                 if not _validate and ana['rnvp_Cp'] != '' and ana['rnvp_Ville'] != '':
-                                    r1 = RechAdresse('nothingtodo' + ' ' + ana['rnvp_Cp'] + ' ' + ana['rnvp_Ville'], NBMax=40, Lookup=True, Appel='RNVP', cpdefaut=cpdefaut, vcedex=ana['rnvp_Cedex'])
+                                    if ana['rnvp_Adr5'] != '' and '<BP3>' in ana['Format']:
+                                        r1 = RechAdresse(ana['rnvp_Adr5'] + ' ' + ana['rnvp_Cp'] + ' ' + ana['rnvp_Ville'], NBMax=40, Lookup=True, Appel='RNVP', cpdefaut=cpdefaut, vcedex=ana['rnvp_Cedex'], transvoie=False)
+                                    else:
+                                        r1 = RechAdresse('nothingtodo' + ' ' + ana['rnvp_Cp'] + ' ' + ana['rnvp_Ville'], NBMax=40, Lookup=True, Appel='RNVP', cpdefaut=cpdefaut, vcedex=ana['rnvp_Cedex'], transvoie=False)
                                     if len(r1) == 1 and r1[0][0] != ['', ''] and ' CEDEX ' in r1[0][1][0] + ' ':
                                         _validate = True
                                         r1[0][2] = ''
@@ -19692,7 +19846,7 @@ class VerifRnvp(object):
                                             if len(np1) > 2:
                                                 tp['Localite'] = np1[0][:] + ' (' + np1[2]
                                             else:
-                                                tp['Localite'] = np1[0][:]
+                                                tp['Localite'] = np1[0][:].strip()
                                             if tp['TypeVoie'] == 'LIEU DIT' or tp['TypeVoie'] == 'LD':
                                                 tp['LieuDit'] = tp['TypeVoie'] + ' ' + tp['Voie']
                                             else:
@@ -19760,7 +19914,13 @@ class VerifRnvp(object):
                                     else:
                                         r1 = RechAdresse(ana[1][1]['rnvp_Adresse'] + ' ' + ana[1][1]['rnvp_Cp'] + ' ' + ana[1][1]['rnvp_Ville'], NBMax=40, Lookup=True, Appel='RNVP', cpdefaut=cpdefaut, vcedex=ana[1][1]['rnvp_Cedex'])
                                 else:
-                                    r1 = RechAdresse('nothingtodo ' + ana[1][1]['rnvp_Cp'] + ' ' + ana[1][1]['rnvp_Ville'], NBMax=40, Lookup=True, Appel='RNVP', cpdefaut=cpdefaut, vcedex=ana[1][1]['rnvp_Cedex'])
+                                    if restructure.AnalyseSpecifique != None and restructure._isValidate:
+                                        _validate = restructure.AnalyseSpecifique.isValidate(ana[1][1])
+                                    if not _validate and ana[1][1]['rnvp_Cp'] != '' and ana[1][1]['rnvp_Ville'] != '':
+                                        if ana[1][1]['rnvp_Adr5'] != '' and '<BP3>' in ana[1][1]['Format']:
+                                            r1 = RechAdresse(ana[1][1]['rnvp_Adr5'] + ' ' + ana[1][1]['rnvp_Cp'] + ' ' + ana[1][1]['rnvp_Ville'], NBMax=40, Lookup=True, Appel='RNVP', cpdefaut=cpdefaut, vcedex=ana[1][1]['rnvp_Cedex'], transvoie=False)
+                                        else:
+                                            r1 = RechAdresse('nothingtodo ' + ana[1][1]['rnvp_Cp'] + ' ' + ana[1][1]['rnvp_Ville'], NBMax=40, Lookup=True, Appel='RNVP', cpdefaut=cpdefaut, vcedex=ana[1][1]['rnvp_Cedex'], transvoie=False)
                                     if len(r1) == 1:
                                         r1[0][2] = ''
                                 _validate = False
@@ -19855,7 +20015,7 @@ class VerifRnvp(object):
                                                             ana[1][1]['rnvp_Adr2'] = ' '.join(ana[1][1]['rnvp_Adr2'].replace(ld, '').split())
                                                         elif ld in ana[1][1]['rnvp_Adr3']:
                                                             ana[1][1]['rnvp_Adr3'] = ' '.join(ana[1][1]['rnvp_Adr3'].replace(ld, '').split())
-                                                    tp['Localite'] = vi
+                                                    tp['Localite'] = vi.strip()
                                                     break
 
                                         tp['Cedex'] = '0'
@@ -20026,7 +20186,7 @@ class VerifRnvp(object):
                                                     else:
                                                         tp['Localite'] = np1[0][:].strip()
                                                 if tp['LieuDit'] != '':
-                                                    if not tp['LieuDit'] in tp['ligne5'].upper():
+                                                    if not AjusteCPVille(tp['LieuDit']) in AjusteCPVille(tp['ligne5'].upper()):
                                                         tp['ligne5'] = (tp['ligne5'] + ' ' + tp['LieuDit']).strip()
                                                 tp['ligne6'] = (tp['CodePostal'] + ' ' + tp['Localite']).strip()
                                                 if tp['LieuDit'] == '' and (tp['Complement'] != '' or tp['ligne2'] != '') and tp['IDLocalite'] in mapville6:
@@ -20208,13 +20368,17 @@ class VerifRnvp(object):
                                 if '(LD.' in vi:
                                     ld = vi[vi.index('(LD.') + 5:-1].strip()
                                     vi = vi[0:vi.index('(LD.')].strip()
-                                    if not ld in ana['rnvp_Adr5']:
-                                        ana['rnvp_Adr5'] = (ana['rnvp_Adr5'] + ' ' + ld).strip()
-                                    if ld in ana['rnvp_Adr2']:
-                                        ana['rnvp_Adr2'] = ' '.join(ana['rnvp_Adr2'].replace(ld, '').split())
-                                    elif ld in ana['rnvp_Adr3']:
-                                        ana['rnvp_Adr3'] = ' '.join(ana['rnvp_Adr3'].replace(ld, '').split())
-                                tp['Localite'] = vi
+                                    if 'NOTHINGTODO' in li[2]:
+                                        if not ld in li[2]:
+                                            ld = ''
+                                    if ld:
+                                        if not ld in ana['rnvp_Adr5']:
+                                            ana['rnvp_Adr5'] = (ana['rnvp_Adr5'] + ' ' + ld).strip()
+                                        if ld in ana['rnvp_Adr2']:
+                                            ana['rnvp_Adr2'] = ' '.join(ana['rnvp_Adr2'].replace(ld, '').split())
+                                        elif ld in ana['rnvp_Adr3']:
+                                            ana['rnvp_Adr3'] = ' '.join(ana['rnvp_Adr3'].replace(ld, '').split())
+                                tp['Localite'] = vi.strip()
                             tp['Cedex'] = '0'
                             if 'CEDEX' in tp['Localite']:
                                 tp['Cedex'] = '1'
@@ -20290,7 +20454,7 @@ class VerifRnvp(object):
                                 if len(np1) > 2:
                                     tp['Localite'] = np1[0][:] + ' (' + np1[2]
                                 else:
-                                    tp['Localite'] = np1[0][:]
+                                    tp['Localite'] = np1[0][:].strip()
                                 if (tp['TypeVoie'] == 'LIEU DIT' or tp['TypeVoie'] == 'LD') and tp['LieuDit'] == '':
                                     tp['LieuDit'] = tp['TypeVoie'] + ' ' + tp['Voie']
                             tp['ListeComplements'] = ''
@@ -20325,7 +20489,7 @@ class VerifRnvp(object):
                                         tp['LieuDit'] = res_ld[0]
                                         tp['Complement'] = res_ld[1]
                                         tp['IDLocalite'] = res_ld[3]
-                                        tp['Localite'] = res_ld[2]
+                                        tp['Localite'] = res_ld[2].strip()
                                         tp['Cedex'] = '0'
                                         if 'CEDEX' in tp['Localite']:
                                             tp['Cedex'] = '1'
@@ -21058,158 +21222,191 @@ class VerifRnvp(object):
                 elif Proposition.upper() == 'N' and len(retour) > 1:
                     fl_err = 2
                 if fl_err > 0:
-                    retour = {'1': {}}
-                    taille = 3000
-                    _insee = ''
-                    rechv = []
-                    _af_cp = ''
-                    vld = ''
-                    vvi = _vi
-                    if len(_cp) >= 2:
-                        _af_cp = _cp
-                        if cpdefaut != '':
-                            rechv = recherche_villeparnom(_vi, cpdefaut)
-                            if len(rechv) == 0:
-                                rechv = recherche_villeparnom(_vi, _cp)
-                            else:
-                                _af_cp = cpdefaut
+                    if fl_err == 1 and len(retour) == 1 and retour['1']['LieuDit'] != '' and retour['1']['Ligne2'] + retour['1']['Complement'] + retour['1']['Voie'] == '':
+                        pass
+                    else:
+                        retour = {'1': {}}
+                        taille = 3000
+                        _insee = ''
+                        rechv = []
+                        _af_cp = ''
+                        if type(ana) is list:
+                            vld = ana[1][1]['rnvp_Adr5']
                         else:
-                            rechv = recherche_villeparnom(_vi, _cp)
-                        if len(rechv) == 0:
-                            rechv = recherche_villeparnom(_vi, _cp[0:2])
-                        if len(rechv) > 0:
-                            _insee = rechv[0][1]
-                            _af_cp = rechv[0][2]
-                            if _insee in mapville5:
-                                taille = mapville5[_insee]
-                        elif _cp in cp_234:
-                            cps = cp_234[_cp]
-                            for i in cps:
-                                vi = decode(i[0])
-                                if distanceVille(vi, _vi)[0] >= 0.9:
-                                    rechv.append([vi,
-                                     i[1],
-                                     _cp,
-                                     i[2],
-                                     ''])
-                                    _insee = i[1]
-                                    break
-
-                        if rechv != [] and _vi != '':
-                            if len(rechv) == 1:
-                                vi = rechv[0][0]
-                                if distanceVille(vi, _vi)[0] >= 0.9:
-                                    if '(LD.' in vi:
-                                        vld = vi[vi.index('(LD.') + 5:-1].strip()
-                                        vvi = vi[0:vi.index('(LD.')].strip()
-                                    else:
-                                        vvi = vi.strip()
-                                    _af_cp = rechv[0][2]
+                            vld = ana['rnvp_Adr5']
+                        vvi = _vi
+                        if len(_cp) >= 2:
+                            _af_cp = _cp
+                            if cpdefaut != '':
+                                rechv = recherche_villeparnom(_vi, cpdefaut)
+                                if len(rechv) == 0:
+                                    rechv = recherche_villeparnom(_vi, _cp)
+                                else:
+                                    _af_cp = cpdefaut
                             else:
-                                for i in rechv:
-                                    vi = i[0]
+                                rechv = recherche_villeparnom(_vi, _cp, exact=True)
+                            if len(rechv) == 0:
+                                rechv = recherche_villeparnom(_vi, _cp[0:2], exact=True)
+                            if len(rechv) > 0:
+                                _insee = rechv[0][1]
+                                _af_cp = rechv[0][2]
+                                if _insee in mapville5:
+                                    taille = mapville5[_insee]
+                            elif _cp in cp_234:
+                                cps = cp_234[_cp]
+                                for i in cps:
+                                    vi = decode(i[0])
+                                    if distanceVille(vi, _vi)[0] >= 0.9:
+                                        rechv.append([vi,
+                                         i[1],
+                                         _cp,
+                                         i[2],
+                                         ''])
+                                        _insee = i[1]
+                                        break
+
+                            if rechv != [] and _vi != '':
+                                if len(rechv) == 1:
+                                    vi = rechv[0][0]
                                     if distanceVille(vi, _vi)[0] >= 0.9:
                                         if '(LD.' in vi:
-                                            vld = vi[vi.index('(LD.') + 5:-1].strip()
+                                            if vld == '':
+                                                vld = vi[vi.index('(LD.') + 5:-1].strip()
+                                            else:
+                                                _vld = vi[vi.index('(LD.') + 5:-1].strip()
+                                                if vld != _vld:
+                                                    vld += ' ' + _vld
                                             vvi = vi[0:vi.index('(LD.')].strip()
                                         else:
                                             vvi = vi.strip()
                                         _af_cp = rechv[0][2]
-                                        break
+                                else:
+                                    _pr = []
+                                    _af_cp = ''
+                                    for i in rechv:
+                                        vi = i[0]
+                                        if distanceVille(vi, _vi)[0] >= 0.9:
+                                            if '(LD.' in vi:
+                                                _pr.append(i)
+                                                if vld == '':
+                                                    vld = vi[vi.index('(LD.') + 5:-1].strip()
+                                                else:
+                                                    _vld = vi[vi.index('(LD.') + 5:-1].strip()
+                                                    if vld != _vld:
+                                                        vld += ' ' + _vld
+                                                vvi = vi[0:vi.index('(LD.')].strip()
+                                                _af_cp = rechv[0][2]
+                                            else:
+                                                vvi = vi.strip()
+                                                _af_cp = rechv[0][2]
+                                                _pr = []
+                                                break
 
-                    if Adresse != '':
-                        tb = (Adresse + '||||||||').split('|')
-                        tb.insert(0, '')
-                        tb[3] = vld
-                        if len(rechv) >= 1:
-                            tb[5] = vvi
-                            tb[4] = _af_cp
-                        else:
-                            tb[5] = convertUTFISO.convertUTF8(tb[5], 'O', 'O')
-                            tb[4] = _af_cp
-                    else:
-                        tb = []
-                        tb.append(ligne2)
-                        tb.append(ligne3)
-                        tb.append(ligne4)
-                        tb.append(ligne5)
-                        tb.append(cp)
-                        if len(rechv) >= 1:
-                            tb.append(rechv[0][0])
-                            tb[4] = rechv[0][2]
-                        else:
-                            tb.append(convertUTFISO.convertUTF8(ville, 'O', 'O'))
-                            tb[4] = _af_cp
-                    if taille <= 2500:
-                        if ''.join(tb[0:4]).strip() == '':
-                            retour['1']['DQECodeDetail'] = '41'
-                        else:
-                            _r = '30'
-                            if tb[2] == '':
-                                _r = '41'
-                            if fl_err == 2:
-                                retour['1']['DQECodeDetail'] = _r + 'M'
+                                    if len(_pr) > 1:
+                                        vld = ''
+                        if Adresse != '':
+                            tb = Adresse.split('|')
+                            if len(tb) == 7:
+                                tb.pop(0)
+                            while len(tb) < 6:
+                                tb.insert(0, '')
+
+                            tb[3] = vld
+                            tb[2] = ana['rnvp_Adresse']
+                            tb[1] = ana['rnvp_Adr3']
+                            tb[0] = ana['rnvp_Adr2']
+                            if len(rechv) >= 1:
+                                tb[5] = vvi
+                                tb[4] = _af_cp
                             else:
-                                retour['1']['DQECodeDetail'] = _r
-                        retour['1']['DQELibErreur'] = 'KO'
-                    else:
-                        if ''.join(tb[0:4]).strip() == '':
-                            retour['1']['DQECodeDetail'] = '61'
+                                tb[5] = convertUTFISO.convertUTF8(tb[5], 'O', 'O')
+                                tb[4] = _af_cp
                         else:
-                            _r = '50'
-                            if tb[2] == '':
-                                _r = '61'
-                            if fl_err == 2:
-                                retour['1']['DQECodeDetail'] = _r + 'M'
+                            tb = []
+                            tb.append(ligne2)
+                            tb.append(ligne3)
+                            tb.append(ligne4)
+                            tb.append(ligne5)
+                            tb.append(cp)
+                            if len(rechv) >= 1:
+                                if vld == '':
+                                    tb.append(vvi)
+                                else:
+                                    tb.append(vvi + ' (LD. ' + vld + ')')
+                                tb[4] = rechv[0][2]
                             else:
-                                retour['1']['DQECodeDetail'] = _r
-                        retour['1']['DQELibErreur'] = 'KO'
-                    if Adresse != '':
-                        retour['1']['Adresse'] = tb[2].strip()
-                    else:
-                        retour['1']['Adresse'] = ligne4.strip()
-                        retour['1']['ligne1'] = ligne1
-                        retour['1']['ligne2'] = ligne2
-                        retour['1']['ligne3'] = ligne3
-                        retour['1']['ligne4'] = ligne4
-                        retour['1']['ligne5'] = ligne5
-                        if ' (LD.' in tb[5]:
-                            vld = tb[5][tb[5].index('(LD.') + 5:-1].strip()
-                            vvi = tb[5][0:tb[5].index('(LD.')].strip()
-                            retour['1']['ligne5'] = (ligne5 + ' ' + vld).strip()
-                            retour['1']['ligne6'] = (tb[4] + '      ')[0:5] + ' ' + vvi
-                            tb[5] = vvi
-                            if tb[3] == '':
-                                tb[3] = vld
+                                tb.append(convertUTFISO.convertUTF8(ville, 'O', 'O'))
+                                tb[4] = _af_cp
+                        if taille <= 2500:
+                            if ''.join(tb[0:4]).strip() == '':
+                                retour['1']['DQECodeDetail'] = '41'
+                            else:
+                                _r = '30'
+                                if tb[2] == '':
+                                    _r = '41'
+                                if fl_err == 2:
+                                    retour['1']['DQECodeDetail'] = _r + 'M'
+                                else:
+                                    retour['1']['DQECodeDetail'] = _r
+                            retour['1']['DQELibErreur'] = 'KO'
                         else:
-                            retour['1']['ligne6'] = (tb[4] + '      ')[0:5] + ' ' + tb[5]
-                        retour['1']['DQECodeComplem'] = ''
-                    retour['1']['IDCle'] = ''
-                    retour['1']['IDCleVoie'] = ''
-                    retour['1']['IDHexaposte'] = _insee
-                    retour['1']['Cedex'] = ''
-                    retour['1']['CodePostal'] = tb[4]
-                    retour['1']['CompNum'] = ''
-                    retour['1']['Complement'] = tb[1]
-                    retour['1']['DQECodeErreur'] = '1'
-                    retour['1']['DQECompte'] = ''
-                    retour['1']['DQEPourcentErreur'] = ''
-                    retour['1']['IDLocalite'] = _insee
-                    retour['1']['IDVoie'] = ''
-                    retour['1']['Instance'] = ''
-                    retour['1']['LieuDit'] = tb[3]
-                    retour['1']['Ligne2'] = tb[0]
-                    retour['1']['ListeNumero'] = ''
-                    retour['1']['Localite'] = tb[5]
-                    retour['1']['NbNumero'] = ''
-                    retour['1']['NumSeul'] = ''
-                    retour['1']['Numero'] = ''
-                    retour['1']['Pays'] = 'FRA'
-                    retour['1']['Province'] = '*'
-                    retour['1']['TypeVoie'] = ''
-                    retour['1']['Voie'] = ''
-                    if _flag_roudis:
-                        retour['1']['Roudis'] = ''
+                            if ''.join(tb[0:4]).strip() == '':
+                                retour['1']['DQECodeDetail'] = '61'
+                            else:
+                                _r = '50'
+                                if tb[2] == '':
+                                    _r = '61'
+                                if fl_err == 2:
+                                    retour['1']['DQECodeDetail'] = _r + 'M'
+                                else:
+                                    retour['1']['DQECodeDetail'] = _r
+                            retour['1']['DQELibErreur'] = 'KO'
+                        if Adresse != '':
+                            retour['1']['Adresse'] = tb[2].strip()
+                        else:
+                            retour['1']['Adresse'] = ligne4.strip()
+                            retour['1']['ligne1'] = ligne1
+                            retour['1']['ligne2'] = ligne2
+                            retour['1']['ligne3'] = ligne3
+                            retour['1']['ligne4'] = ligne4
+                            retour['1']['ligne5'] = ligne5
+                            if ' (LD.' in tb[5]:
+                                vld = tb[5][tb[5].index('(LD.') + 5:-1].strip()
+                                vvi = tb[5][0:tb[5].index('(LD.')].strip()
+                                retour['1']['ligne5'] = (ligne5 + ' ' + vld).strip()
+                                retour['1']['ligne6'] = (tb[4] + '      ')[0:5] + ' ' + vvi
+                                tb[5] = vvi
+                                if tb[3] == '':
+                                    tb[3] = vld
+                            else:
+                                retour['1']['ligne6'] = (tb[4] + '      ')[0:5] + ' ' + tb[5]
+                            retour['1']['DQECodeComplem'] = ''
+                        retour['1']['IDCle'] = ''
+                        retour['1']['IDCleVoie'] = ''
+                        retour['1']['IDHexaposte'] = _insee
+                        retour['1']['Cedex'] = ''
+                        retour['1']['CodePostal'] = tb[4]
+                        retour['1']['CompNum'] = ''
+                        retour['1']['Complement'] = tb[1]
+                        retour['1']['DQECodeErreur'] = '1'
+                        retour['1']['DQECompte'] = ''
+                        retour['1']['DQEPourcentErreur'] = ''
+                        retour['1']['IDLocalite'] = _insee
+                        retour['1']['IDVoie'] = ''
+                        retour['1']['Instance'] = ''
+                        retour['1']['LieuDit'] = tb[3]
+                        retour['1']['Ligne2'] = tb[0]
+                        retour['1']['ListeNumero'] = ''
+                        retour['1']['Localite'] = tb[5]
+                        retour['1']['NbNumero'] = ''
+                        retour['1']['NumSeul'] = ''
+                        retour['1']['Numero'] = ''
+                        retour['1']['Pays'] = 'FRA'
+                        retour['1']['Province'] = '*'
+                        retour['1']['TypeVoie'] = ''
+                        retour['1']['Voie'] = ''
+                        if _flag_roudis:
+                            retour['1']['Roudis'] = ''
         if Pays == 'FRA' and (_flag_irisilot or _flag_mapgeocodage) or Pays != 'FRA' and _flag_mapgeocodage:
             if 'list' in str(type(retour)):
                 for i in range(0, len(retour)):
@@ -21483,6 +21680,19 @@ class VerifRnvp(object):
                                 tp['DQECodeErreur'] = '9'
                         else:
                             tp['DQECodeErreur'] = '9'
+            if tp['LieuDit'] != '' and (' BP ' in ' ' + tp['LieuDit'] or ' BOITE POSTALE ' in ' ' + tp['LieuDit']):
+                if tp['DQECodeDetail'] in ['21',
+                 '22',
+                 '23',
+                 '24',
+                 '30',
+                 '40',
+                 '41',
+                 '50',
+                 '61']:
+                    tp['DQECodeDetail'] = '20'
+                    tp['DQECodeErreur'] = '0'
+                    tp['DQELibErreur'] = 'OK'
             if tp['IDVoie'] != '' and tp['IDVoie'].isdigit() and int(tp['IDVoie'] > 0):
                 tp['IDVoie'] = normaliseIDVoie(tp['IDVoie'])
             for verif in ['ListeComplements',
@@ -21617,6 +21827,8 @@ class VerifRnvp(object):
                                     return [True, 'FRA', new_cp]
                                 return [vi != [], '', '']
                     return [True, 'FRA', new_cp]
+                else:
+                    return [False, '', '']
             elif ville != '':
                 ville0 = convertUTFISO.convertUTF8(ville, 'O', 'O')
                 vi = recherche_villeparnomexact(ville0)
@@ -21737,13 +21949,35 @@ class VerifRnvp(object):
                         lville = ''
                     if Pays == 'FRA' and tb[_icp] != '' and tb[_icp][0:2] in ('75', '69', '13') and lville in ('PARIS', 'LYON', 'MARSEILLE') and ' CEDEX ' not in tb[_iville] + ' ' and ' CDX ' not in tb[_iville] + ' ' and ' CEDE ' not in tb[_iville] + ' ':
                         mem_cp = tb[_icp].strip()
+                        fl_ville = False
                         if convertUTFISO.convertUTF8(''.join(tb[0:_icp]), 'O', 'O').strip() != '':
                             if lville == 'PARIS':
                                 tb[_icp] = '75000'
+                                fl_ville = True
                             elif lville == 'LYON':
                                 tb[_icp] = '69000'
+                                fl_ville = True
                             elif lville == 'MARSEILLE':
                                 tb[_icp] = '13000'
+                                fl_ville = True
+                        if fl_ville:
+                            if tb[_iville].strip() != '':
+                                tb_av = tb[_iville].strip().split()
+                                v_av1 = tb_av[0]
+                                fl_cdx = False
+                                fl_pr = True
+                                for i in tb_av[1:]:
+                                    if i in ('CEDEX', 'CDX'):
+                                        fl_cdx = True
+                                    if fl_cdx:
+                                        v_av1 += ' ' + i
+                                    else:
+                                        if fl_pr and i != '' and i[0].isdigit():
+                                            fl_pr = False
+                                        if fl_pr:
+                                            v_av1 += ' ' + i
+
+                                tb[_iville] = v_av1
                         retour = self.Traite_rnvp(Pays, '|'.join(tb), Instance, ligne1, ligne2, ligne3, ligne4, ligne5, ligne6, cp, '', Licence, Taille, Mini, Cedex, IP_Trace, Proposition, ForceInternational, tr_cpteffectif, modeBatch, Descrimination, cpdefaut=mem_cp)
                     elif Pays == _pays:
                         _isF = isFrance(tb[_icp], tb[_iville])
@@ -21778,13 +22012,35 @@ class VerifRnvp(object):
                         lville = ''
                     if cp != '' and _pays == 'FRA' and cp != '' and cp[0:2] in ('75', '69', '13') and lville in ('PARIS', 'LYON', 'MARSEILLE') and ' CEDEX ' not in ville + ' ' and ' CDX ' not in ville + ' ' and ' CEDE ' not in ville + ' ':
                         mem_cp = cp[:].strip()
+                        fl_ville = False
                         if convertUTFISO.convertUTF8(ligne1 + ligne2 + ligne3 + ligne4 + ligne5, 'O', 'O').strip() != '':
                             if lville == 'PARIS':
                                 cp = '75000'
+                                fl_ville = True
                             elif lville == 'LYON':
                                 cp = '69000'
+                                fl_ville = True
                             elif lville == 'MARSEILLE':
                                 cp = '13000'
+                                fl_ville = True
+                        if fl_ville:
+                            if ville.strip() != '':
+                                tb_av = ville.strip().split()
+                                v_av1 = tb_av[0]
+                                fl_cdx = False
+                                fl_pr = True
+                                for i in tb_av[1:]:
+                                    if i in ('CEDEX', 'CDX'):
+                                        fl_cdx = True
+                                    if fl_cdx:
+                                        v_av1 += ' ' + i
+                                    else:
+                                        if fl_pr and i != '' and i[0].isdigit():
+                                            fl_pr = False
+                                        if fl_pr:
+                                            v_av1 += ' ' + i
+
+                                ville = v_av1
                         retour = self.Traite_rnvp(Pays, Adresse, Instance, ligne1, ligne2, ligne3, ligne4, ligne5, ligne6, cp, ville, Licence, Taille, Mini, Cedex, IP_Trace, Proposition, ForceInternational, tr_cpteffectif, modeBatch, Descrimination, cpdefaut=mem_cp)
                     elif Pays == 'FRA':
                         _isF = isFrance(cp, ville)
@@ -21842,7 +22098,7 @@ class VerifRnvp(object):
                     if '|' in Adresse:
                         retour['1']['Adresse'] = tb[-4]
                         retour['1']['Complement'] = tb[-5]
-                        retour['1']['Localite'] = tb[-1]
+                        retour['1']['Localite'] = tb[-1].strip()
                         retour['1']['LieuDit'] = tb[-3]
                         retour['1']['CodePostal'] = tb[-2]
                     else:
@@ -21854,12 +22110,12 @@ class VerifRnvp(object):
                         retour['1']['ligne5'] = ligne5
                         retour['1']['ligne2'] = ligne2
                         retour['1']['ligne1'] = ligne1
-                        retour['1']['Localite'] = cp
+                        retour['1']['Localite'] = cp.strip()
                         retour['1']['CodePostal'] = ville
             mem0 = retour
             if _pays == Pays and Descrimination:
                 fl_faire_la_ville = True
-                if '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'] in ('80', '70', '30', '50'):
+                if '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'] in ('80', '70', '30', '50', '50M'):
                     _cp = ''
                     _ville = ''
                     if '|' in Adresse:
@@ -21870,7 +22126,10 @@ class VerifRnvp(object):
                             _cp = tb[-2]
                             _ville = tb[-1]
                     else:
-                        _cp = cp
+                        if mem_cp != '':
+                            _cp = mem_cp
+                        else:
+                            _cp = cp
                         _ville = ville
                     if _cp != '' and _ville != '':
                         villes = recherche_cp(_cp, flag_cedexa=False)
@@ -21888,13 +22147,13 @@ class VerifRnvp(object):
                                 tb[-1] = ''
                                 Adr = '|'.join(tb)
                                 retour = self.Traite_rnvp(Pays, Adr, Instance, ligne1, ligne2, ligne3, ligne4, ligne5, ligne6, cp, '', Licence, Taille, Mini, Cedex, IP_Trace, Proposition, ForceInternational, tr_cpteffectif, modeBatch, Descrimination)
-                                if '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'] in ('80', '70', '30', '50'):
+                                if '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'] in ('80', '70', '30', '50', '50M'):
                                     retour = mem0
                             else:
-                                retour = self.Traite_rnvp(Pays, Adresse, Instance, ligne1, ligne2, ligne3, ligne4, ligne5, ligne6, cp, '', Licence, Taille, Mini, Cedex, IP_Trace, Proposition, ForceInternational, tr_cpteffectif, modeBatch, Descrimination)
-                                if '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'][0:2] in ('80', '70', '30', '50'):
+                                retour = self.Traite_rnvp(Pays, Adresse, Instance, ligne1, ligne2, ligne3, ligne4, ligne5, ligne6, _cp, '', Licence, Taille, Mini, Cedex, IP_Trace, Proposition, ForceInternational, tr_cpteffectif, modeBatch, Descrimination)
+                                if '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'][0:2] in ('80', '70', '30', '50', '50M'):
                                     retour = mem0
-                if '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'] in ('80', '70', '30', '50'):
+                if '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'] in ('80', '70', '30', '50', '50M'):
                     if '|' in Adresse:
                         tb = Adresse.split('|')
                         if len(tb) >= 7:
@@ -21911,7 +22170,7 @@ class VerifRnvp(object):
                                 ntb[1] = adr_tmp
                                 ntb[0] = (ntb[0] + ' ' + l3_tmp).strip()
                             retour = self.Traite_rnvp(Pays, '|'.join(ntb), Instance, ligne1, ligne2, ligne3, ligne4, ligne5, ligne6, cp, '', Licence, Taille, Mini, Cedex, IP_Trace, Proposition, ForceInternational, tr_cpteffectif, modeBatch, Descrimination)
-                            if not ('1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'][0:2] in ('80', '70', '30', '50')):
+                            if not ('1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'][0:2] in ('80', '70', '30', '50', '50M')):
                                 if mem != [] and mem != {}:
                                     if mem['1']['DQECodeDetail'][0:2] == '10' and retour['1']['DQECodeDetail'][0:2] != '10':
                                         retour = mem
@@ -21921,12 +22180,12 @@ class VerifRnvp(object):
                                 retour = mem
                                 break
 
-                        if fl_faire_la_ville and '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and (retour['1']['DQECodeDetail'][0:2] in ('80', '70', '30', '50') or retour['1']['DQECodeErreur'] in ('9',)):
+                        if fl_faire_la_ville and '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and (retour['1']['DQECodeDetail'][0:2] in ('80', '70', '30', '50', '50M') or retour['1']['DQECodeErreur'] in ('9',)):
                             if tb[-1] != '':
                                 tb[-1] = ''
                                 Adr = '|'.join(tb)
                                 retour = self.Traite_rnvp(Pays, Adr, Instance, ligne1, ligne2, ligne3, ligne4, ligne5, ligne6, cp, '', Licence, Taille, Mini, Cedex, IP_Trace, Proposition, ForceInternational, tr_cpteffectif, modeBatch, Descrimination)
-                                if '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'] in ('80', '70', '30', '50'):
+                                if '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'] in ('80', '70', '30', '50', '50M'):
                                     retour = mem0
                                 elif '1' in retour.keys() and tb[-4] != '' and not ComparaisonTypeAdresse(retour['1']['Adresse'], tb[-4].upper()):
                                     retour = mem0
@@ -21935,7 +22194,7 @@ class VerifRnvp(object):
                         mem = []
                         for adr_tmp, l3tmp in DecoupageAnalyse(adr4):
                             retour = self.Traite_rnvp(Pays, Adresse, Instance, ligne1, ligne2, l3tmp, adr_tmp, ligne5, ligne6, cp, ville, Licence, Taille, Mini, Cedex, IP_Trace, Proposition, ForceInternational, tr_cpteffectif, modeBatch, Descrimination)
-                            if not ('1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'][0:2] in ('80', '70', '30', '50')):
+                            if not ('1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'][0:2] in ('80', '70', '30', '50', '50M')):
                                 if mem != [] and mem != {}:
                                     if mem['1']['DQECodeDetail'][0:2] == '10' and retour['1']['DQECodeDetail'][0:2] != '10':
                                         retour = mem
@@ -21946,10 +22205,10 @@ class VerifRnvp(object):
                                 retour = mem
                                 break
 
-                        if fl_faire_la_ville and '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'][0:2] in ('80', '70', '30', '50'):
-                            if ville != '':
-                                retour = self.Traite_rnvp(Pays, Adresse, Instance, ligne1, ligne2, ligne3, ligne4, ligne5, ligne6, cp, '', Licence, Taille, Mini, Cedex, IP_Trace, Proposition, ForceInternational, tr_cpteffectif, modeBatch, Descrimination)
-                                if '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'][0:2] in ('80', '70', '30', '50'):
+                        if fl_faire_la_ville and '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'][0:2] in ('80', '70', '30', '50', '50M'):
+                            if ville != '' and ligne2 + ligne3 + ligne4 != '':
+                                retour = self.Traite_rnvp(Pays, Adresse, Instance, ligne1, ligne2, ligne3, ligne4, ligne5, ligne6, mem_cp, '', Licence, Taille, Mini, Cedex, IP_Trace, Proposition, ForceInternational, tr_cpteffectif, modeBatch, Descrimination)
+                                if '1' in retour.keys() and 'DQECodeDetail' in retour['1'].keys() and retour['1']['DQECodeDetail'][0:2] in ('80', '70', '30', '50', '50M'):
                                     retour = mem0
                                 elif '1' in retour.keys() and ligne4 != '' and not ComparaisonTypeAdresse(retour['1']['Adresse'], ligne4.upper()):
                                     retour = mem0
@@ -22085,6 +22344,55 @@ class VerifRnvp(object):
                        'ligne4': ligne4,
                        'ligne5': ligne5,
                        'ligne6': cp + ' ' + ville,
+                       'Adresse': ligne4.strip(),
+                       'Ligne2': ligne2.strip(),
+                       'CodePostal': cp,
+                       'Localite': ville,
+                       'Voie': ligne4.strip(),
+                       'DQECodeDetail': '80',
+                       'DQELibErreur': 'KO'}}
+            else:
+                retour = {'1': {'ICE': '',
+                       'DQECompte': '',
+                       'Instance': '',
+                       'Status_IrisIlot': '',
+                       'Latitude': '',
+                       'Province': '',
+                       'ListeComplements': '',
+                       'Complement': '',
+                       'Roudis': '',
+                       'Cedex': '',
+                       'Numero': '',
+                       'ListeNumero': '',
+                       'IDHexaposte': '',
+                       'IDCleVoie': '',
+                       'IDCle': '',
+                       'Geolocalisation_Error_Code': '',
+                       'LieuDit': '',
+                       'L02': '',
+                       'Longitude': '',
+                       'TypeVoie': '',
+                       'ilot': '',
+                       'ICR': '',
+                       'ICP': '',
+                       'GPS': '',
+                       'CompNum': '',
+                       'iris': '',
+                       'IDLocalite': '',
+                       'DQECodeErreur': '1',
+                       'L93': '',
+                       'Pays': 'FRA',
+                       'IDVoie': '',
+                       'NbNumero': '',
+                       'NumSeul': '',
+                       'DQEPourcentErreur': '',
+                       'DQECodeComplem': '',
+                       'ligne1': ligne1,
+                       'ligne2': ligne2,
+                       'ligne3': ligne3,
+                       'ligne4': ligne4,
+                       'ligne5': ligne5,
+                       'ligne6': str(cp + ' ' + ville),
                        'Adresse': ligne4.strip(),
                        'Ligne2': ligne2.strip(),
                        'CodePostal': cp,
@@ -22785,7 +23093,7 @@ def RecupAdrLatLon(Adresse, Lat, Lon, DistAdr = 0.01, NBMax = 30, Pays = 'FRA'):
 
             re['Instance'] = ''
             re['ListeNumero'] = ''
-            re['Localite'] = re1[0][0]
+            re['Localite'] = re1[0][0].strip()
             re['Cedex'] = '0'
             if 'CEDEX' in re['Localite']:
                 re['Cedex'] = '1'
